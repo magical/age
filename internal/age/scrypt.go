@@ -59,7 +59,7 @@ func (r *ScryptRecipient) Wrap(fileKey []byte) (*format.Recipient, error) {
 		Args: []string{format.EncodeToString(salt), strconv.Itoa(logN)},
 	}
 
-	k, err := scrypt.Key(r.password, salt, 1<<logN, 8, 1, chacha20poly1305.KeySize)
+	k, err := scrypt.Key(r.password, salt, 1<<uint(logN), 8, 1, chacha20poly1305.KeySize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate scrypt hash: %v", err)
 	}
@@ -127,7 +127,7 @@ func (i *ScryptIdentity) Unwrap(block *format.Recipient) ([]byte, error) {
 		return nil, fmt.Errorf("invalid scrypt work factor: %v", logN)
 	}
 
-	k, err := scrypt.Key(i.password, salt, 1<<logN, 8, 1, chacha20poly1305.KeySize)
+	k, err := scrypt.Key(i.password, salt, 1<<uint(logN), 8, 1, chacha20poly1305.KeySize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate scrypt hash: %v", err)
 	}
