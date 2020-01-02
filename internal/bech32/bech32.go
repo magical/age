@@ -38,7 +38,7 @@ func polymod(values []byte) uint32 {
 		chk = (chk & 0x1ffffff) << 5
 		chk = chk ^ uint32(v)
 		for i := 0; i < 5; i++ {
-			bit := top >> i & 1
+			bit := top >> uint(i) & 1
 			if bit == 1 {
 				chk ^= generator[i]
 			}
@@ -71,7 +71,7 @@ func createChecksum(hrp string, data []byte) []byte {
 	ret := make([]byte, 6)
 	for p := range ret {
 		shift := 5 * (5 - p)
-		ret[p] = byte(mod>>shift) & 31
+		ret[p] = byte(mod>>uint(shift)) & 31
 	}
 	return ret
 }
