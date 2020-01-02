@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/FiloSottile/age/internal/format"
+	"filippo.io/age/internal/format"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/scrypt"
 )
+
+const scryptLabel = "age-encryption.org/v1/scrypt"
 
 type ScryptRecipient struct {
 	password   []byte
@@ -28,7 +30,7 @@ func (*ScryptRecipient) Type() string { return "scrypt" }
 
 func NewScryptRecipient(password string) (*ScryptRecipient, error) {
 	if len(password) == 0 {
-		return nil, errors.New("empty scrypt password")
+		return nil, errors.New("passphrase can't be empty")
 	}
 	r := &ScryptRecipient{
 		password: []byte(password),
@@ -59,6 +61,7 @@ func (r *ScryptRecipient) Wrap(fileKey []byte) (*format.Recipient, error) {
 		Args: []string{format.EncodeToString(salt), strconv.Itoa(logN)},
 	}
 
+	salt = append([]byte(scryptLabel), salt...)
 	k, err := scrypt.Key(r.password, salt, 1<<uint(logN), 8, 1, chacha20poly1305.KeySize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate scrypt hash: %v", err)
@@ -84,7 +87,7 @@ func (*ScryptIdentity) Type() string { return "scrypt" }
 
 func NewScryptIdentity(password string) (*ScryptIdentity, error) {
 	if len(password) == 0 {
-		return nil, errors.New("empty scrypt password")
+		return nil, errors.New("passphrase can't be empty")
 	}
 	i := &ScryptIdentity{
 		password:      []byte(password),
@@ -104,7 +107,7 @@ func (i *ScryptIdentity) SetMaxWorkFactor(logN int) {
 
 func (i *ScryptIdentity) Unwrap(block *format.Recipient) ([]byte, error) {
 	if block.Type != "scrypt" {
-		return nil, errors.New("wrong recipient block type")
+		return nil, ErrIncorrectIdentity
 	}
 	if len(block.Args) != 2 {
 		return nil, errors.New("invalid scrypt recipient block")
@@ -127,6 +130,7 @@ func (i *ScryptIdentity) Unwrap(block *format.Recipient) ([]byte, error) {
 		return nil, fmt.Errorf("invalid scrypt work factor: %v", logN)
 	}
 
+	salt = append([]byte(scryptLabel), salt...)
 	k, err := scrypt.Key(i.password, salt, 1<<uint(logN), 8, 1, chacha20poly1305.KeySize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate scrypt hash: %v", err)
@@ -134,7 +138,7 @@ func (i *ScryptIdentity) Unwrap(block *format.Recipient) ([]byte, error) {
 
 	fileKey, err := aeadDecrypt(k, block.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt file key: %v", err)
+		return nil, ErrIncorrectIdentity
 	}
 	return fileKey, nil
 }

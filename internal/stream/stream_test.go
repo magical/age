@@ -10,9 +10,11 @@ import (
 	"bytes"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"testing"
 
-	"github.com/FiloSottile/age/internal/stream"
+	"filippo.io/age/internal/format"
+	"filippo.io/age/internal/stream"
 	"golang.org/x/crypto/chacha20poly1305"
 )
 
@@ -38,7 +40,19 @@ func testRoundTrip(t *testing.T, stepSize, length int) {
 		t.Fatal(err)
 	}
 
-	w, err := stream.NewWriter(key, buf)
+	var closed bool
+	bufCloser := struct {
+		io.Writer
+		format.CloserFunc
+	}{
+		Writer: buf,
+		CloserFunc: func() error {
+			closed = true
+			return nil
+		},
+	}
+
+	w, err := stream.NewWriter(key, bufCloser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,6 +83,9 @@ func testRoundTrip(t *testing.T, stepSize, length int) {
 
 	if err := w.Close(); err != nil {
 		t.Error("Close returned an error:", err)
+	}
+	if !closed {
+		t.Error("(*stream.Writer).Close didn't close the underlying WriteCloser")
 	}
 
 	t.Logf("buffer size: %d", buf.Len())

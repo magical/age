@@ -4,6 +4,7 @@
 // license that can be found in the LICENSE file or at
 // https://developers.google.com/open-source/licenses/bsd
 
+// Package format implements the age file format.
 package format
 
 import (
@@ -27,7 +28,7 @@ type Recipient struct {
 	Body []byte
 }
 
-var b64 = base64.RawURLEncoding.Strict()
+var b64 = base64.RawStdEncoding.Strict()
 
 func DecodeString(s string) ([]byte, error) {
 	// CR and LF are ignored by DecodeString, but we don't want any malleability.
@@ -39,9 +40,10 @@ func DecodeString(s string) ([]byte, error) {
 
 var EncodeToString = b64.EncodeToString
 
-const bytesPerLine = 56 / 4 * 3 // 56 columns of Base64
+const columnsPerLine = 64
+const bytesPerLine = columnsPerLine / 4 * 3
 
-const intro = "This is a file encrypted with age-tool.com, version 1\n"
+const intro = "age-encryption.org/v1\n"
 
 var recipientPrefix = []byte("->")
 var footerPrefix = []byte("---")
@@ -58,17 +60,15 @@ func (r *Recipient) Marshal(w io.Writer) error {
 	if _, err := io.WriteString(w, "\n"); err != nil {
 		return err
 	}
-	for i := 0; i < len(r.Body); i += bytesPerLine {
-		n := bytesPerLine
-		if n > len(r.Body)-i {
-			n = len(r.Body) - i
-		}
-		s := EncodeToString(r.Body[i : i+n])
-		if _, err := io.WriteString(w, s+"\n"); err != nil {
-			return err
-		}
+	ww := base64.NewEncoder(b64, &newlineWriter{dst: w})
+	if _, err := ww.Write(r.Body); err != nil {
+		return err
 	}
-	return nil
+	if err := ww.Close(); err != nil {
+		return err
+	}
+	_, err := io.WriteString(w, "\n")
+	return err
 }
 
 func (h *Header) MarshalWithoutMAC(w io.Writer) error {
@@ -108,6 +108,13 @@ func errorf(format string, a ...interface{}) error {
 func Parse(input io.Reader) (*Header, io.Reader, error) {
 	h := &Header{}
 	rr := bufio.NewReader(input)
+
+	// TODO: find a way to communicate to the caller that the file was armored,
+	// as they might not appreciate the malleability.
+	if start, _ := rr.Peek(len(armorPreamble)); string(start) == armorPreamble {
+		input = ArmoredReader(rr)
+		rr = bufio.NewReader(input)
+	}
 
 	line, err := rr.ReadString('\n')
 	if err != nil {

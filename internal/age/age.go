@@ -4,6 +4,7 @@
 // license that can be found in the LICENSE file or at
 // https://developers.google.com/open-source/licenses/bsd
 
+// Package age implements file encryption according to age-encryption.org/v1.
 package age
 
 import (
@@ -13,8 +14,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FiloSottile/age/internal/format"
-	"github.com/FiloSottile/age/internal/stream"
+	"filippo.io/age/internal/format"
+	"filippo.io/age/internal/stream"
 )
 
 type Identity interface {
@@ -22,12 +23,32 @@ type Identity interface {
 	Unwrap(block *format.Recipient) (fileKey []byte, err error)
 }
 
+type IdentityMatcher interface {
+	Identity
+	Matches(block *format.Recipient) error
+}
+
+var ErrIncorrectIdentity = errors.New("incorrect identity for recipient block")
+
 type Recipient interface {
 	Type() string
 	Wrap(fileKey []byte) (*format.Recipient, error)
 }
 
 func Encrypt(dst io.Writer, recipients ...Recipient) (io.WriteCloser, error) {
+	// stream.Writer takes a WriteCloser, and will propagate Close calls (so
+	// that the ArmoredWriter will get closed), but we don't want to expose
+	// that behavior to our caller.
+	dstCloser := format.NopCloser(dst)
+	return encrypt(dstCloser, recipients...)
+}
+
+func EncryptWithArmor(dst io.Writer, recipients ...Recipient) (io.WriteCloser, error) {
+	dstCloser := format.ArmoredWriter(dst)
+	return encrypt(dstCloser, recipients...)
+}
+
+func encrypt(dst io.WriteCloser, recipients ...Recipient) (io.WriteCloser, error) {
 	if len(recipients) == 0 {
 		return nil, errors.New("no recipients specified")
 	}
@@ -89,15 +110,32 @@ RecipientsLoop:
 			return nil, errors.New("an scrypt recipient must be the only one")
 		}
 		for _, i := range identities {
-
 			if i.Type() != r.Type {
 				continue
 			}
 
-			fileKey, err = i.Unwrap(r)
-			if err == nil {
-				break RecipientsLoop
+			if i, ok := i.(IdentityMatcher); ok {
+				err := i.Matches(r)
+				if err != nil {
+					if err == ErrIncorrectIdentity {
+						continue
+					}
+					return nil, err
+				}
 			}
+
+			fileKey, err = i.Unwrap(r)
+			if err != nil {
+				if err == ErrIncorrectIdentity {
+					// TODO: we should collect these errors and return them as an
+					// []error type with an Error method. That will require turning
+					// ErrIncorrectIdentity into an interface or wrapper error.
+					continue
+				}
+				return nil, err
+			}
+
+			break RecipientsLoop
 		}
 	}
 	if fileKey == nil {
