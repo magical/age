@@ -8,13 +8,13 @@ package age_test
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"testing"
 
 	"filippo.io/age/internal/age"
 	"golang.org/x/crypto/curve25519"
+	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/ssh"
 )
 
